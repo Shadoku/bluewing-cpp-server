@@ -11,6 +11,9 @@ Drop nodes into your scene tree, connect signals, call a handful of methods — 
 | `bluewing_server.gd` | `BluewingServer` | GDScript relay server, compatible with `BluewingClient` |
 | `bluewing_network_manager.gd` | `BluewingNetworkManager` | Spawns/despawns nodes, syncs properties, manages ownership |
 | `sync_config.gd` | `SyncConfig` | Resource that configures sync rate and interpolation per property |
+| `bluewing_steam_client.gd` | `BluewingSteamClient` | Steam transport drop-in for `BluewingClient` (NAT traversal) |
+| `bluewing_steam_server.gd` | `BluewingSteamServer` | Steam transport drop-in for `BluewingServer` (NAT traversal) |
+| `bluewing_steam_lobby.gd` | `BluewingSteamLobby` | Steam lobby creation, discovery, and "Join Game" button |
 
 ---
 
@@ -257,6 +260,74 @@ manager.request_spawn(preload("res://player.tscn"))
 | `node_despawned(network_id)` | Remote DESPAWN applied locally |
 | `ownership_changed(node, old_owner, new_owner)` | Ownership transferred |
 | `custom_received(node, data)` | Custom payload received for a node |
+
+---
+
+---
+
+## Steam multiplayer (NAT traversal)
+
+Requires [GodotSteam 4.x](https://godotsteam.com) and a Steamworks App ID.  
+The Steam transport replaces raw TCP/UDP sockets with Valve's relay network — no port forwarding needed.  
+`BluewingNetworkManager` works unchanged with Steam clients and servers.
+
+### Steam class pairing
+
+| Instead of | Use |
+|---|---|
+| `BluewingClient` | `BluewingSteamClient` |
+| `BluewingServer` | `BluewingSteamServer` |
+| *(new)* | `BluewingSteamLobby` |
+
+### In-game host with Steam
+
+```gdscript
+@onready var lobby:  BluewingSteamLobby   = $BluewingSteamLobby
+@onready var server: BluewingSteamServer  = $BluewingSteamServer
+@onready var client: BluewingSteamClient  = $BluewingSteamClient
+
+func host_game() -> void:
+    lobby.lobby_created.connect(func(_id): server.start_as_host(client))
+    lobby.create_lobby()
+
+func join_game(lobby_id: int) -> void:
+    lobby.lobby_joined.connect(func(_id, sid): client.connect_to_steam(sid))
+    lobby.join_lobby(lobby_id)
+```
+
+### "Join Game" button (friends list)
+
+```gdscript
+func _ready() -> void:
+    # Fired when the player clicks "Join Game" on a friend in the Steam overlay.
+    lobby.join_game_requested.connect(func(id): join_game(id))
+```
+
+### Command-line join (game not yet running)
+
+When the game is launched via the Steam friends list, Steam appends `+connect_lobby <id>` to the arguments.  Parse it in `_ready()`:
+
+```gdscript
+func _ready() -> void:
+    var args := OS.get_cmdline_args()
+    var idx   := args.find("+connect_lobby")
+    if idx != -1 and idx + 1 < args.size():
+        join_game(int(args[idx + 1]))
+```
+
+### Using BluewingNetworkManager with Steam
+
+`BluewingNetworkManager` expects a `BluewingClient` export.  Assign the Steam client at runtime:
+
+```gdscript
+func _ready() -> void:
+    manager.setup($BluewingSteamClient)   # same API, different transport
+```
+
+### Virtual port
+
+Both `BluewingSteamClient` and `BluewingSteamServer` expose a `virtual_port` export (default `0`).  
+These must match.  Change them if you need to run multiple independent relay services on one Steam ID.
 
 ---
 
